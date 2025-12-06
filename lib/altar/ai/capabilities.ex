@@ -6,6 +6,16 @@ defmodule Altar.AI.Capabilities do
   each adapter supports. This is more flexible than compile-time behaviours.
   """
 
+  @type t :: %{
+          generate: boolean(),
+          stream: boolean(),
+          embed: boolean(),
+          batch_embed: boolean(),
+          classify: boolean(),
+          generate_code: boolean(),
+          explain_code: boolean()
+        }
+
   @protocols %{
     generate: {Altar.AI.Generator, :generate},
     stream: {Altar.AI.Generator, :stream},
