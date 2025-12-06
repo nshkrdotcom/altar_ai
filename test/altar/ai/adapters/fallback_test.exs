@@ -1,108 +1,47 @@
 defmodule Altar.AI.Adapters.FallbackTest do
   use ExUnit.Case, async: true
 
+  alias Altar.AI
   alias Altar.AI.Adapters.Fallback
+  alias Altar.AI.{Response, Classification}
 
-  describe "generate/2" do
-    test "recognizes greetings" do
-      {:ok, response} = Fallback.generate("hello there")
+  setup do
+    {:ok, adapter: Fallback.new()}
+  end
 
-      assert response.content =~ ~r/hello/i
-      assert response.model == "fallback-heuristic"
-      assert response.finish_reason == :stop
-    end
+  describe "generate/3" do
+    test "returns fallback response", %{adapter: adapter} do
+      {:ok, response} = AI.generate(adapter, "test prompt")
 
-    test "recognizes farewells" do
-      {:ok, response} = Fallback.generate("goodbye friend")
-
-      assert response.content =~ ~r/goodbye/i
-      assert response.model == "fallback-heuristic"
-    end
-
-    test "returns generic response for unknown input" do
-      {:ok, response} = Fallback.generate("some random text")
-
-      assert response.content =~ "fallback adapter"
-      assert response.metadata.heuristic == true
-    end
-
-    test "counts tokens" do
-      {:ok, response} = Fallback.generate("hello world")
-
-      assert response.tokens.prompt > 0
-      assert response.tokens.completion > 0
-      assert response.tokens.total == response.tokens.prompt + response.tokens.completion
+      assert %Response{} = response
+      assert response.content =~ "[Fallback]"
+      assert response.provider == :fallback
+      assert response.finish_reason == :fallback
     end
   end
 
-  describe "stream/2" do
-    test "converts response to stream" do
-      {:ok, stream} = Fallback.stream("hello")
+  describe "classify/4" do
+    test "performs keyword-based classification", %{adapter: adapter} do
+      {:ok, classification} =
+        AI.classify(adapter, "I am positive about this", ["positive", "negative"])
 
-      chunks = Enum.to_list(stream)
-      assert length(chunks) > 0
+      assert %Classification{} = classification
+      assert classification.label == "positive"
+      assert classification.confidence == 0.8
+    end
 
-      chunk = List.first(chunks)
-      assert %{content: _, delta: false, finish_reason: :stop} = chunk
+    test "returns first label when no match", %{adapter: adapter} do
+      {:ok, classification} = AI.classify(adapter, "neutral text", ["happy", "sad"])
+
+      assert %Classification{} = classification
+      assert classification.label in ["happy", "sad"]
+      assert classification.confidence == 0.2
     end
   end
 
-  describe "classify/3" do
-    test "detects positive sentiment" do
-      text = "I love this wonderful amazing product!"
-      labels = ["positive", "negative", "neutral"]
-
-      {:ok, result} = Fallback.classify(text, labels)
-
-      assert result.label == "positive"
-      assert result.confidence > 0.0
-      assert Map.has_key?(result.scores, "positive")
-      assert Map.has_key?(result.scores, "negative")
-      assert Map.has_key?(result.scores, "neutral")
-    end
-
-    test "detects negative sentiment" do
-      text = "This is terrible, I hate it, so bad and awful"
-      labels = ["positive", "negative", "neutral"]
-
-      {:ok, result} = Fallback.classify(text, labels)
-
-      assert result.label == "negative"
-      assert result.confidence > 0.0
-    end
-
-    test "defaults to first label for neutral text" do
-      text = "The sky is blue"
-      labels = ["happy", "sad"]
-
-      {:ok, result} = Fallback.classify(text, labels)
-
-      assert result.label == "happy"
-      assert result.confidence == 0.5
-    end
-
-    test "handles custom label names" do
-      text = "I love this!"
-      labels = ["good", "bad"]
-
-      {:ok, result} = Fallback.classify(text, labels)
-
-      assert result.label == "good"
-    end
-
-    test "scores sum to approximately 1.0" do
-      labels = ["a", "b", "c", "d"]
-      {:ok, result} = Fallback.classify("test", labels)
-
-      total = labels |> Enum.map(&Map.get(result.scores, &1)) |> Enum.sum()
-      assert_in_delta total, 1.0, 0.01
-    end
-
-    test "includes metadata" do
-      {:ok, result} = Fallback.classify("test", ["a", "b"])
-
-      assert result.metadata.adapter == :fallback
-      assert result.metadata.heuristic == true
+  describe "available?/0" do
+    test "always returns true" do
+      assert Fallback.available?() == true
     end
   end
 end

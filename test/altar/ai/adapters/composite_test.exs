@@ -1,176 +1,74 @@
 defmodule Altar.AI.Adapters.CompositeTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias Altar.AI.Adapters.{Composite, Mock}
-  alias Altar.AI.Error
+  alias Altar.AI
+  alias Altar.AI.Adapters.{Composite, Mock, Fallback}
+  alias Altar.AI.{Response, Error}
 
-  setup do
-    # Reset mock adapter before each test
-    Mock.reset()
+  describe "new/2" do
+    test "creates composite with provided adapters" do
+      mock = Mock.new()
+      fallback = Fallback.new()
 
-    # Configure composite to use mock adapter
-    Application.put_env(:altar_ai, :adapters, %{
-      composite: [
-        providers: [{Mock, []}],
-        max_retries: 2,
-        retry_delay_ms: 10,
-        retry_on_types: [:rate_limit, :timeout]
-      ]
-    })
+      composite = Composite.new([mock, fallback])
 
-    on_exit(fn ->
-      Application.delete_env(:altar_ai, :adapters)
-    end)
-
-    :ok
-  end
-
-  describe "generate/2" do
-    test "returns response from first successful provider" do
-      {:ok, response} = Composite.generate("Hello")
-
-      assert response.content =~ "mocked"
-      assert response.metadata.provider == :mock
-    end
-
-    test "falls back to next provider on error" do
-      # Configure composite with a failing provider then Mock
-      defmodule FailingProvider do
-        @behaviour Altar.AI.Behaviours.TextGen
-
-        def generate(_prompt, _opts) do
-          {:error, Error.new(:api_error, "Failed", :failing)}
-        end
-
-        def stream(_prompt, _opts) do
-          {:error, Error.new(:api_error, "Failed", :failing)}
-        end
-      end
-
-      Application.put_env(:altar_ai, :adapters, %{
-        composite: [
-          providers: [{FailingProvider, []}, {Mock, []}],
-          max_retries: 1
-        ]
-      })
-
-      {:ok, response} = Composite.generate("Hello")
-
-      # Should succeed with Mock adapter
-      assert response.content =~ "mocked"
-      assert response.metadata.provider == :mock
-    end
-
-    test "returns error when all providers fail" do
-      defmodule AllFailProvider do
-        @behaviour Altar.AI.Behaviours.TextGen
-
-        def generate(_prompt, _opts) do
-          {:error, Error.new(:api_error, "Always fails", :failing)}
-        end
-
-        def stream(_prompt, _opts) do
-          {:error, Error.new(:api_error, "Always fails", :failing)}
-        end
-      end
-
-      Application.put_env(:altar_ai, :adapters, %{
-        composite: [
-          providers: [{AllFailProvider, []}],
-          max_retries: 1
-        ]
-      })
-
-      {:error, error} = Composite.generate("Hello")
-
-      assert error.type == :api_error
-      assert error.message == "All providers failed"
-      assert error.provider == :composite
-      assert is_list(error.details.errors)
-      assert length(error.details.errors) == 1
-    end
-
-    test "retries on retryable errors" do
-      # Create a provider that fails once then succeeds
-      defmodule RetryableProvider do
-        use Agent
-
-        def start_link(_) do
-          Agent.start_link(fn -> 0 end, name: __MODULE__)
-        end
-
-        @behaviour Altar.AI.Behaviours.TextGen
-
-        def generate(_prompt, _opts) do
-          count = Agent.get_and_update(__MODULE__, fn c -> {c, c + 1} end)
-
-          if count == 0 do
-            {:error, Error.new(:rate_limit, "Rate limited", :retryable, retryable?: true)}
-          else
-            {:ok,
-             %{
-               content: "Success after retry",
-               model: "test",
-               tokens: %{prompt: 1, completion: 1, total: 2},
-               finish_reason: :stop,
-               metadata: %{}
-             }}
-          end
-        end
-
-        def stream(_prompt, _opts), do: generate("", [])
-      end
-
-      {:ok, _} = start_supervised(RetryableProvider)
-
-      Application.put_env(:altar_ai, :adapters, %{
-        composite: [
-          providers: [{RetryableProvider, []}],
-          max_retries: 3,
-          retry_delay_ms: 10,
-          retry_on_types: [:rate_limit]
-        ]
-      })
-
-      {:ok, response} = Composite.generate("Hello")
-
-      assert response.content == "Success after retry"
+      assert %Composite{} = composite
+      assert composite.providers == [mock, fallback]
+      assert composite.strategy == :fallback
     end
   end
 
-  describe "embed/2" do
-    test "delegates to configured provider" do
-      {:ok, response} = Composite.embed("test text")
+  describe "default/0" do
+    test "creates default composite" do
+      composite = Composite.default()
 
-      assert is_list(response.vector)
-      assert response.metadata.provider == :mock
+      assert %Composite{} = composite
+      assert is_list(composite.providers)
+      assert Enum.any?(composite.providers, &match?(%Fallback{}, &1))
     end
   end
 
-  describe "classify/3" do
-    test "delegates to configured provider" do
-      {:ok, result} = Composite.classify("test", ["a", "b"])
+  describe "generate/3 with fallback strategy" do
+    test "uses first successful adapter" do
+      mock1 =
+        Mock.new()
+        |> Mock.with_response(
+          :generate,
+          {:error, Error.new(:rate_limit, "error", retryable?: true)}
+        )
 
-      assert result.label in ["a", "b"]
-      assert result.metadata.provider == :mock
+      mock2 =
+        Mock.new()
+        |> Mock.with_response(
+          :generate,
+          {:ok, %Response{content: "success", provider: :mock2, model: "test"}}
+        )
+
+      composite = Composite.new([mock1, mock2])
+
+      {:ok, response} = AI.generate(composite, "test")
+      assert response.content == "success"
+    end
+
+    test "tries all adapters until one succeeds" do
+      fallback = Fallback.new()
+      composite = Composite.new([fallback])
+
+      {:ok, response} = AI.generate(composite, "test")
+      assert response.provider == :fallback
     end
   end
 
-  describe "generate_code/2" do
-    test "delegates to configured provider" do
-      {:ok, response} = Composite.generate_code("create function")
+  describe "capabilities" do
+    test "composite supports all capabilities its providers support" do
+      mock = Mock.new()
+      fallback = Fallback.new()
+      composite = Composite.new([mock, fallback])
 
-      assert is_binary(response.code)
-      assert response.metadata.provider == :mock
-    end
-  end
-
-  describe "explain_code/2" do
-    test "delegates to configured provider" do
-      {:ok, response} = Composite.explain_code("def hello, do: :world")
-
-      assert is_binary(response.explanation)
-      assert response.metadata.provider == :mock
+      # Composite should support capabilities from any of its providers
+      assert AI.supports?(composite, :generate) == true
+      assert AI.supports?(composite, :embed) == true
+      assert AI.supports?(composite, :classify) == true
     end
   end
 end

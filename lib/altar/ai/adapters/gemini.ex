@@ -1,215 +1,163 @@
 defmodule Altar.AI.Adapters.Gemini do
   @moduledoc """
-  Gemini adapter for Altar.AI.
+  Gemini adapter wrapping gemini_ex.
 
-  This adapter wraps the `gemini` package to provide TextGen and Embed
-  capabilities through Google's Gemini API.
+  Provides protocol implementations for Gemini AI capabilities including
+  text generation and embeddings.
+  """
 
-  ## Configuration
+  defstruct opts: []
 
-      config :altar_ai,
-        adapters: %{
-          gemini: [
-            api_key: {:system, "GEMINI_API_KEY"},
-            model: "gemini-2.0-flash-exp"
-          ]
-        }
+  @type t :: %__MODULE__{opts: keyword()}
+
+  @doc """
+  Create a new Gemini adapter.
+
+  ## Options
+    - `:api_key` - Gemini API key (defaults to GEMINI_API_KEY env var)
+    - `:model` - Default model to use (e.g., "gemini-pro")
+    - Other options passed through to Gemini SDK
 
   ## Examples
 
-      iex> Altar.AI.Adapters.Gemini.generate("Hello", model: "gemini-pro")
-      {:ok, %{content: "Hi there!", model: "gemini-pro", ...}}
-
+      iex> Altar.AI.Adapters.Gemini.new(model: "gemini-pro")
+      %Altar.AI.Adapters.Gemini{opts: [model: "gemini-pro"]}
   """
+  def new(opts \\ []), do: %__MODULE__{opts: opts}
 
-  @behaviour Altar.AI.Behaviours.TextGen
-  @behaviour Altar.AI.Behaviours.Embed
+  # Check if SDK available at compile time
+  @gemini_available Code.ensure_loaded?(Gemini)
 
-  alias Altar.AI.{Config, Error, Response}
+  @doc """
+  Check if the Gemini SDK is available.
+  """
+  def available?, do: @gemini_available
+end
 
-  @impl true
-  def generate(prompt, opts \\ []) do
-    if gemini_available?() do
-      generate_with_gemini(prompt, opts)
-    else
-      {:error,
-       Error.new(
-         :not_found,
-         "Gemini package not available. Add {:gemini, \"~> 0.1.0\"} to your deps.",
-         :gemini
-       )}
+# Only implement protocols if Gemini SDK is available
+if Code.ensure_loaded?(Gemini) do
+  defimpl Altar.AI.Generator, for: Altar.AI.Adapters.Gemini do
+    alias Altar.AI.{Response, Error, Telemetry}
+
+    def generate(%{opts: opts}, prompt, call_opts) do
+      merged_opts = Keyword.merge(opts, call_opts)
+
+      Telemetry.span(:generate, %{provider: :gemini, prompt_length: String.length(prompt)}, fn ->
+        model = merged_opts[:model] || "gemini-pro"
+
+        case Gemini.generate_content(model, prompt, merged_opts) do
+          {:ok, response} ->
+            {:ok,
+             %Response{
+               content: extract_content(response),
+               model: model,
+               provider: :gemini,
+               finish_reason: :stop,
+               tokens: extract_tokens(response)
+             }}
+
+          {:error, error} ->
+            {:error, Error.from_gemini_error(error)}
+        end
+      end)
+    end
+
+    def stream(%{opts: opts}, prompt, call_opts) do
+      merged_opts = Keyword.merge(opts, call_opts)
+
+      Telemetry.span(:stream, %{provider: :gemini, prompt_length: String.length(prompt)}, fn ->
+        model = merged_opts[:model] || "gemini-pro"
+
+        case Gemini.stream_generate_content(model, prompt, merged_opts) do
+          {:ok, stream} ->
+            {:ok, stream}
+
+          {:error, error} ->
+            {:error, Error.from_gemini_error(error)}
+        end
+      end)
+    end
+
+    defp extract_content(response) do
+      case response do
+        %{candidates: [%{content: %{parts: [%{text: text} | _]}} | _]} -> text
+        %{text: text} -> text
+        _ -> ""
+      end
+    end
+
+    defp extract_tokens(response) do
+      case response do
+        %{usage_metadata: usage} ->
+          %{
+            prompt: Map.get(usage, :prompt_token_count, 0),
+            completion: Map.get(usage, :candidates_token_count, 0),
+            total: Map.get(usage, :total_token_count, 0)
+          }
+
+        _ ->
+          %{prompt: 0, completion: 0, total: 0}
+      end
     end
   end
 
-  @impl true
-  def stream(prompt, opts \\ []) do
-    if gemini_available?() do
-      stream_with_gemini(prompt, opts)
-    else
-      {:error,
-       Error.new(
-         :not_found,
-         "Gemini package not available. Add {:gemini, \"~> 0.1.0\"} to your deps.",
-         :gemini
-       )}
+  defimpl Altar.AI.Embedder, for: Altar.AI.Adapters.Gemini do
+    alias Altar.AI.{Error, Telemetry}
+
+    def embed(%{opts: opts}, text, call_opts) do
+      merged_opts = Keyword.merge(opts, call_opts)
+
+      Telemetry.span(:embed, %{provider: :gemini}, fn ->
+        model = merged_opts[:model] || "text-embedding-004"
+
+        case Gemini.embed_content(model, text, merged_opts) do
+          {:ok, response} ->
+            extract_vector(response)
+
+          {:error, error} ->
+            {:error, Error.from_gemini_error(error)}
+        end
+      end)
     end
-  end
 
-  @impl true
-  def embed(text, opts \\ []) do
-    if gemini_available?() do
-      embed_with_gemini(text, opts)
-    else
-      {:error,
-       Error.new(
-         :not_found,
-         "Gemini package not available. Add {:gemini, \"~> 0.1.0\"} to your deps.",
-         :gemini
-       )}
+    def batch_embed(%{opts: opts}, texts, call_opts) do
+      merged_opts = Keyword.merge(opts, call_opts)
+
+      Telemetry.span(:batch_embed, %{provider: :gemini, count: length(texts)}, fn ->
+        model = merged_opts[:model] || "text-embedding-004"
+
+        case Gemini.batch_embed_contents(model, texts, merged_opts) do
+          {:ok, response} ->
+            extract_vectors(response)
+
+          {:error, error} ->
+            {:error, Error.from_gemini_error(error)}
+        end
+      end)
     end
-  end
 
-  @impl true
-  def batch_embed(texts, opts \\ []) do
-    if gemini_available?() do
-      batch_embed_with_gemini(texts, opts)
-    else
-      {:error,
-       Error.new(
-         :not_found,
-         "Gemini package not available. Add {:gemini, \"~> 0.1.0\"} to your deps.",
-         :gemini
-       )}
+    # Extract embedding vector from Gemini response
+    defp extract_vector(%{embedding: %{values: values}}), do: {:ok, values}
+    defp extract_vector(%{embedding: values}) when is_list(values), do: {:ok, values}
+
+    defp extract_vector(_),
+      do: {:error, Error.new(:invalid_request, "Invalid embedding response", provider: :gemini)}
+
+    # Extract multiple embedding vectors from batch response
+    defp extract_vectors(%{embeddings: embeddings}) when is_list(embeddings) do
+      vectors =
+        Enum.map(embeddings, fn
+          %{values: values} -> values
+          values when is_list(values) -> values
+          _ -> []
+        end)
+
+      {:ok, vectors}
     end
-  end
 
-  # Private implementation
-
-  defp gemini_available? do
-    Code.ensure_loaded?(Gemini)
-  end
-
-  defp generate_with_gemini(prompt, opts) do
-    config = Config.get_adapter_config(:gemini)
-    model = Keyword.get(opts, :model, Keyword.get(config, :model, "gemini-2.0-flash-exp"))
-
-    request_opts = build_request_opts(config, opts)
-
-    case Gemini.generate_content(model, prompt, request_opts) do
-      {:ok, response} ->
-        {:ok, normalize_generate_response(response, model)}
-
-      {:error, error} ->
-        {:error, normalize_error(error)}
-    end
-  end
-
-  defp stream_with_gemini(prompt, opts) do
-    config = Config.get_adapter_config(:gemini)
-    model = Keyword.get(opts, :model, Keyword.get(config, :model, "gemini-2.0-flash-exp"))
-
-    request_opts = build_request_opts(config, opts)
-
-    case Gemini.stream_generate_content(model, prompt, request_opts) do
-      {:ok, stream} ->
-        normalized_stream =
-          Stream.map(stream, fn chunk ->
-            %{
-              content: Response.extract_content(chunk),
-              delta: true,
-              finish_reason: nil
-            }
-          end)
-
-        {:ok, normalized_stream}
-
-      {:error, error} ->
-        {:error, normalize_error(error)}
-    end
-  end
-
-  defp embed_with_gemini(text, opts) do
-    config = Config.get_adapter_config(:gemini)
-    model = Keyword.get(opts, :model, Keyword.get(config, :embedding_model, "text-embedding-004"))
-
-    request_opts = build_request_opts(config, opts)
-
-    case Gemini.embed_content(model, text, request_opts) do
-      {:ok, response} ->
-        {:ok, normalize_embed_response(response, model)}
-
-      {:error, error} ->
-        {:error, normalize_error(error)}
-    end
-  end
-
-  defp batch_embed_with_gemini(texts, opts) do
-    config = Config.get_adapter_config(:gemini)
-    model = Keyword.get(opts, :model, Keyword.get(config, :embedding_model, "text-embedding-004"))
-
-    request_opts = build_request_opts(config, opts)
-
-    case Gemini.batch_embed_contents(model, texts, request_opts) do
-      {:ok, response} ->
-        {:ok, normalize_batch_embed_response(response, model)}
-
-      {:error, error} ->
-        {:error, normalize_error(error)}
-    end
-  end
-
-  defp build_request_opts(config, opts) do
-    base_opts = [
-      api_key: Keyword.get(config, :api_key)
-    ]
-
-    # Merge in supported options
-    opts
-    |> Keyword.take([:temperature, :max_tokens, :top_p, :stop, :system])
-    |> Keyword.merge(base_opts)
-    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-  end
-
-  defp normalize_generate_response(response, model) do
-    %{
-      content: Response.extract_content(response),
-      model: model,
-      tokens: Response.normalize_tokens(Map.get(response, :usage, %{})),
-      finish_reason: Response.normalize_finish_reason(Map.get(response, :finish_reason)),
-      metadata: Response.extract_metadata(response)
-    }
-  end
-
-  defp normalize_embed_response(response, model) do
-    %{
-      vector: Map.get(response, :embedding, []),
-      model: model,
-      dimensions: length(Map.get(response, :embedding, [])),
-      metadata: Response.extract_metadata(response)
-    }
-  end
-
-  defp normalize_batch_embed_response(response, model) do
-    embeddings = Map.get(response, :embeddings, [])
-    dimensions = embeddings |> List.first([]) |> length()
-
-    %{
-      vectors: embeddings,
-      model: model,
-      dimensions: dimensions,
-      metadata: Response.extract_metadata(response)
-    }
-  end
-
-  defp normalize_error(error) when is_binary(error) do
-    Error.new(:api_error, error, :gemini)
-  end
-
-  defp normalize_error(%{message: message}) do
-    Error.new(:api_error, message, :gemini)
-  end
-
-  defp normalize_error(error) do
-    Error.new(:api_error, inspect(error), :gemini)
+    defp extract_vectors(_),
+      do:
+        {:error,
+         Error.new(:invalid_request, "Invalid batch embedding response", provider: :gemini)}
   end
 end

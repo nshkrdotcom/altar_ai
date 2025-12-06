@@ -11,101 +11,69 @@ defmodule Altar.AI.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: description(),
+      aliases: aliases(),
+
+      # Hex
+      description:
+        "Unified AI adapter foundation - protocols for gemini_ex, claude_agent_sdk, codex_sdk",
       package: package(),
       docs: docs(),
+
+      # Testing
       elixirc_paths: elixirc_paths(Mix.env()),
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test
-      ]
+      preferred_cli_env: [coveralls: :test]
     ]
   end
 
   def application do
+    [extra_applications: [:logger]]
+  end
+
+  defp deps do
     [
-      extra_applications: [:logger],
-      mod: {Altar.AI.Application, []}
+      # AI SDKs - ALL OPTIONAL (using path dependencies for local development)
+      # Note: These are optional and may not compile - that's OK!
+      # {:gemini, path: "../gemini_ex", optional: true},
+      # {:claude_agent_sdk, path: "../claude_agent_sdk", optional: true},
+      # {:codex_sdk, path: "../codex_sdk", optional: true},
+
+      # Core
+      {:telemetry, "~> 1.0"},
+      {:jason, "~> 1.4"},
+
+      # Dev/Test
+      # {:supertester, path: "../supertester", only: :test},
+      {:mox, "~> 1.0", only: :test},
+      {:stream_data, "~> 1.0", only: [:dev, :test]},
+      {:ex_doc, "~> 0.30", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
-  defp deps do
+  defp aliases do
     [
-      # Optional AI provider dependencies (uncomment when available)
-      # {:gemini, "~> 0.1.0", optional: true},
-      # {:claude_agent_sdk, "~> 0.1.0", optional: true},
-      # {:codex_sdk, "~> 0.1.0", optional: true},
-
-      # Core dependencies
-      {:telemetry, "~> 1.2"},
-      {:jason, "~> 1.4"},
-
-      # Dev/Test dependencies
-      {:mox, "~> 1.1", only: :test},
-      {:stream_data, "~> 1.0", only: :test},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.18", only: :test}
+      test: ["test --warnings-as-errors"]
     ]
-  end
-
-  defp description do
-    """
-    Unified AI adapter foundation for Elixir. Provides shared behaviours and adapters
-    for multiple AI providers including Gemini, Claude, and Codex. Features composable
-    adapters, fallback chains, and comprehensive testing support.
-    """
   end
 
   defp package do
     [
-      name: "altar_ai",
-      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md assets),
       licenses: ["MIT"],
-      links: %{
-        "GitHub" => @source_url,
-        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
-      },
-      maintainers: ["nshkrdotcom"]
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      name: "Altar.AI",
-      source_ref: "v#{@version}",
-      source_url: @source_url,
-      extras: ["README.md", "CHANGELOG.md"],
-      groups_for_modules: [
-        Behaviours: [
-          Altar.AI.Behaviours.TextGen,
-          Altar.AI.Behaviours.Embed,
-          Altar.AI.Behaviours.Classify,
-          Altar.AI.Behaviours.CodeGen
-        ],
-        Adapters: [
-          Altar.AI.Adapters.Gemini,
-          Altar.AI.Adapters.Claude,
-          Altar.AI.Adapters.Codex,
-          Altar.AI.Adapters.Composite,
-          Altar.AI.Adapters.Mock,
-          Altar.AI.Adapters.Fallback
-        ],
-        Utilities: [
-          Altar.AI.Error,
-          Altar.AI.Response,
-          Altar.AI.Telemetry,
-          Altar.AI.Config
-        ]
-      ]
+      extras: ["README.md"],
+      source_url: @source_url
     ]
   end
 end
