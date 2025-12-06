@@ -8,7 +8,7 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/altar_ai.svg)](https://hex.pm/packages/altar_ai)
 [![Documentation](https://img.shields.io/badge/docs-hexdocs-blue.svg)](https://hexdocs.pm/altar_ai)
-[![License](https://img.shields.io/hexpm/l/altar_ai.svg)](LICENSE)
+[![License](https://img.shields.io/hexpm/l/altar_ai.svg)](https://github.com/nshkrdotcom/altar_ai/blob/main/LICENSE)
 
 ## Features
 
@@ -239,7 +239,7 @@ This makes it easy to:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details
+MIT License - see [LICENSE](https://github.com/nshkrdotcom/altar_ai/blob/main/LICENSE) for details
 
 ## Contributing
 

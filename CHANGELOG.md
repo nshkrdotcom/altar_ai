@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - Protocol-based design for maximum flexibility
-- Runtime capability detection via `Protocol.impl_for/1`
+- Runtime capability detection via protocol introspection
 - Unified interface for multiple AI providers
 - Automatic response normalization across providers
 - Composite adapter with retry logic and automatic fallback
