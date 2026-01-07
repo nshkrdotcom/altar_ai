@@ -41,6 +41,7 @@ defmodule Altar.AI do
   - `Altar.AI.Adapters.Gemini` - Google Gemini (gemini_ex)
   - `Altar.AI.Adapters.Claude` - Anthropic Claude (claude_agent_sdk)
   - `Altar.AI.Adapters.Codex` - OpenAI (codex_sdk)
+  - `Altar.AI.Adapters.OpenAI` - OpenAI (openai_ex)
   - `Altar.AI.Adapters.Composite` - Fallback chain
   - `Altar.AI.Adapters.Mock` - Testing
   - `Altar.AI.Adapters.Fallback` - Heuristic fallback
@@ -67,7 +68,8 @@ defmodule Altar.AI do
       {:ok, classification} = Altar.AI.classify(fallback, "Great!", ["positive", "negative"])
   """
 
-  alias Altar.AI.{Generator, Embedder, Classifier, CodeGenerator, Capabilities}
+  alias Altar.AI.Adapters.{Claude, Codex, Composite, Fallback, Gemini, Mock, OpenAI}
+  alias Altar.AI.{Capabilities, Classifier, CodeGenerator, Embedder, Generator}
 
   # Delegate to protocols
   defdelegate generate(adapter, prompt, opts \\ []), to: Generator
@@ -93,7 +95,7 @@ defmodule Altar.AI do
       iex> Altar.AI.capabilities(adapter)
   """
   def default_adapter do
-    Altar.AI.Adapters.Composite.default()
+    Composite.default()
   end
 
   @doc """
@@ -106,11 +108,12 @@ defmodule Altar.AI do
   """
   def available_adapters do
     [
-      Altar.AI.Adapters.Gemini,
-      Altar.AI.Adapters.Claude,
-      Altar.AI.Adapters.Codex,
-      Altar.AI.Adapters.Fallback,
-      Altar.AI.Adapters.Mock
+      Gemini,
+      Claude,
+      Codex,
+      OpenAI,
+      Fallback,
+      Mock
     ]
     |> Enum.filter(& &1.available?())
   end

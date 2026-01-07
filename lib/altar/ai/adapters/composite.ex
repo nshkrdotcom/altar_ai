@@ -7,10 +7,11 @@ defmodule Altar.AI.Adapters.Composite do
 
   ## Examples
 
-      # Fallback chain: try Gemini, then Claude, then Codex, then fallback
+      # Fallback chain: try Gemini, then Claude, then OpenAI, then Codex, then fallback
       composite = Altar.AI.Adapters.Composite.new([
         Altar.AI.Adapters.Gemini.new(),
         Altar.AI.Adapters.Claude.new(),
+        Altar.AI.Adapters.OpenAI.new(),
         Altar.AI.Adapters.Codex.new(),
         Altar.AI.Adapters.Fallback.new()
       ])
@@ -18,6 +19,8 @@ defmodule Altar.AI.Adapters.Composite do
       # Or use the default chain based on available SDKs
       composite = Altar.AI.Adapters.Composite.default()
   """
+
+  alias Altar.AI.Adapters.{Claude, Codex, Fallback, Gemini, OpenAI}
 
   defstruct [:providers, :strategy, opts: []]
 
@@ -49,16 +52,18 @@ defmodule Altar.AI.Adapters.Composite do
   Tries adapters in this order:
   1. Gemini (if available)
   2. Claude (if available)
-  3. Codex (if available)
-  4. Fallback (always available)
+  3. OpenAI (if available)
+  4. Codex (if available)
+  5. Fallback (always available)
   """
   def default do
     providers =
       []
-      |> maybe_add(Altar.AI.Adapters.Gemini)
-      |> maybe_add(Altar.AI.Adapters.Claude)
-      |> maybe_add(Altar.AI.Adapters.Codex)
-      |> Kernel.++([Altar.AI.Adapters.Fallback.new()])
+      |> maybe_add(Gemini)
+      |> maybe_add(Claude)
+      |> maybe_add(OpenAI)
+      |> maybe_add(Codex)
+      |> Kernel.++([Fallback.new()])
 
     new(providers)
   end
@@ -76,84 +81,87 @@ defmodule Altar.AI.Adapters.Composite do
 end
 
 defimpl Altar.AI.Generator, for: Altar.AI.Adapters.Composite do
-  alias Altar.AI.{Generator, Telemetry, Capabilities}
+  alias Altar.AI.{Capabilities, Generator, Telemetry}
 
   def generate(%{providers: providers, strategy: :fallback}, prompt, opts) do
     Telemetry.span(:generate, %{provider: :composite, strategy: :fallback}, fn ->
-      Enum.reduce_while(providers, {:error, :no_providers}, fn provider, _acc ->
-        if Capabilities.supports?(provider, :generate) do
-          case Generator.generate(provider, prompt, opts) do
-            {:ok, _} = success ->
-              {:halt, success}
-
-            {:error, %{retryable?: true}} ->
-              {:cont, {:error, :all_failed}}
-
-            {:error, _} = error ->
-              {:cont, error}
-          end
-        else
-          {:cont, {:error, :no_providers}}
-        end
+      run_fallback(providers, :generate, fn provider ->
+        Generator.generate(provider, prompt, opts)
       end)
     end)
   end
 
-  def generate(%{providers: providers, strategy: :round_robin}, prompt, opts) do
-    # TODO: Implement round-robin with state management
-    # For now, just use the first available provider
-    provider = Enum.find(providers, &Capabilities.supports?(&1, :generate))
-
-    if provider do
-      Generator.generate(provider, prompt, opts)
-    else
-      {:error, Altar.AI.Error.new(:unavailable, "No providers support generation")}
-    end
-  end
-
-  def generate(%{providers: providers, strategy: :random}, prompt, opts) do
-    supporting_providers = Enum.filter(providers, &Capabilities.supports?(&1, :generate))
-
-    case supporting_providers do
-      [] ->
-        {:error, Altar.AI.Error.new(:unavailable, "No providers support generation")}
-
-      available ->
-        provider = Enum.random(available)
-        Generator.generate(provider, prompt, opts)
+  def generate(%{providers: providers, strategy: strategy}, prompt, opts) do
+    case pick_provider(providers, :generate, strategy) do
+      {:ok, provider} -> Generator.generate(provider, prompt, opts)
+      :error -> {:error, Altar.AI.Error.new(:unavailable, "No providers support generation")}
     end
   end
 
   def stream(%{providers: providers, strategy: :fallback}, prompt, opts) do
     Telemetry.span(:stream, %{provider: :composite, strategy: :fallback}, fn ->
-      Enum.reduce_while(providers, {:error, :no_providers}, fn provider, _acc ->
-        if Capabilities.supports?(provider, :stream) do
-          case Generator.stream(provider, prompt, opts) do
-            {:ok, _} = success -> {:halt, success}
-            {:error, %{retryable?: true}} -> {:cont, {:error, :all_failed}}
-            {:error, _} = error -> {:cont, error}
-          end
-        else
-          {:cont, {:error, :no_providers}}
-        end
+      run_fallback(providers, :stream, fn provider ->
+        Generator.stream(provider, prompt, opts)
       end)
     end)
   end
 
-  def stream(%{providers: providers}, prompt, opts) do
-    # For non-fallback strategies, just use first available
-    provider = Enum.find(providers, &Capabilities.supports?(&1, :stream))
+  def stream(%{providers: providers, strategy: strategy}, prompt, opts) do
+    case pick_provider(providers, :stream, strategy) do
+      {:ok, provider} -> Generator.stream(provider, prompt, opts)
+      :error -> {:error, Altar.AI.Error.new(:unavailable, "No providers support streaming")}
+    end
+  end
 
-    if provider do
-      Generator.stream(provider, prompt, opts)
+  defp pick_provider(providers, capability, :round_robin) do
+    supporting = Enum.filter(providers, &Capabilities.supports?(&1, capability))
+
+    case supporting do
+      [] ->
+        :error
+
+      available ->
+        idx = rem(:erlang.unique_integer([:positive]) - 1, length(available))
+        {:ok, Enum.at(available, idx)}
+    end
+  end
+
+  defp pick_provider(providers, capability, :random) do
+    supporting = Enum.filter(providers, &Capabilities.supports?(&1, capability))
+
+    case supporting do
+      [] -> :error
+      available -> {:ok, Enum.random(available)}
+    end
+  end
+
+  defp pick_provider(providers, capability, _strategy) do
+    case Enum.find(providers, &Capabilities.supports?(&1, capability)) do
+      nil -> :error
+      provider -> {:ok, provider}
+    end
+  end
+
+  defp run_fallback(providers, capability, fun) do
+    Enum.reduce_while(providers, {:error, :no_providers}, fn provider, _acc ->
+      fallback_step(provider, capability, fun)
+    end)
+  end
+
+  defp fallback_step(provider, capability, fun) do
+    with true <- Capabilities.supports?(provider, capability),
+         {:ok, _} = success <- fun.(provider) do
+      {:halt, success}
     else
-      {:error, Altar.AI.Error.new(:unavailable, "No providers support streaming")}
+      false -> {:cont, {:error, :no_providers}}
+      {:error, %{retryable?: true}} -> {:cont, {:error, :all_failed}}
+      {:error, _} = error -> {:cont, error}
     end
   end
 end
 
 defimpl Altar.AI.Embedder, for: Altar.AI.Adapters.Composite do
-  alias Altar.AI.{Embedder, Capabilities}
+  alias Altar.AI.{Capabilities, Embedder}
 
   def embed(%{providers: providers}, text, opts) do
     # Find first provider that implements Embedder
@@ -179,7 +187,7 @@ defimpl Altar.AI.Embedder, for: Altar.AI.Adapters.Composite do
 end
 
 defimpl Altar.AI.Classifier, for: Altar.AI.Adapters.Composite do
-  alias Altar.AI.{Classifier, Capabilities}
+  alias Altar.AI.{Capabilities, Classifier}
 
   def classify(%{providers: providers}, text, labels, opts) do
     provider = Enum.find(providers, &Capabilities.supports?(&1, :classify))
@@ -193,7 +201,7 @@ defimpl Altar.AI.Classifier, for: Altar.AI.Adapters.Composite do
 end
 
 defimpl Altar.AI.CodeGenerator, for: Altar.AI.Adapters.Composite do
-  alias Altar.AI.{CodeGenerator, Capabilities}
+  alias Altar.AI.{Capabilities, CodeGenerator}
 
   def generate_code(%{providers: providers}, prompt, opts) do
     provider = Enum.find(providers, &Capabilities.supports?(&1, :generate_code))

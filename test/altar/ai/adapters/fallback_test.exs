@@ -3,7 +3,7 @@ defmodule Altar.AI.Adapters.FallbackTest do
 
   alias Altar.AI
   alias Altar.AI.Adapters.Fallback
-  alias Altar.AI.{Response, Classification}
+  alias Altar.AI.{Classification, Response}
 
   setup do
     {:ok, adapter: Fallback.new()}

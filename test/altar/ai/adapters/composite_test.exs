@@ -2,8 +2,8 @@ defmodule Altar.AI.Adapters.CompositeTest do
   use ExUnit.Case, async: true
 
   alias Altar.AI
-  alias Altar.AI.Adapters.{Composite, Mock, Fallback}
-  alias Altar.AI.{Response, Error}
+  alias Altar.AI.Adapters.{Composite, Fallback, Mock}
+  alias Altar.AI.{Error, Response}
 
   describe "new/2" do
     test "creates composite with provided adapters" do

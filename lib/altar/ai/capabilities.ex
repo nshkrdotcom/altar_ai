@@ -16,6 +16,8 @@ defmodule Altar.AI.Capabilities do
           explain_code: boolean()
         }
 
+  @type capability_map :: t()
+
   @protocols %{
     generate: {Altar.AI.Generator, :generate},
     stream: {Altar.AI.Generator, :stream},
@@ -106,10 +108,7 @@ defmodule Altar.AI.Capabilities do
     provider = provider_name(adapter)
     caps = list(adapter)
 
-    descriptions =
-      caps
-      |> Enum.map(&capability_description/1)
-      |> Enum.join(", ")
+    descriptions = Enum.map_join(caps, ", ", &capability_description/1)
 
     "#{provider}: #{descriptions}"
   end

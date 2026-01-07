@@ -24,12 +24,6 @@ defmodule Altar.AI.MixProject do
 
       # Testing
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test
-      ],
 
       # Dialyzer
       dialyzer: [
@@ -42,15 +36,30 @@ defmodule Altar.AI.MixProject do
     [extra_applications: [:logger]]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test
+      ]
+    ]
+  end
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
     [
-      # AI SDKs - ALL OPTIONAL (compile-time detection)
-      # {:gemini_ex, "~> 0.8", optional: true},
-      # {:claude_agent_sdk, "~> 0.1", optional: true},
-      # {:codex_sdk, "~> 0.1", optional: true},
+      # AI SDKs - ALL OPTIONAL (compile-time detection, path for local dev)
+      {:gemini_ex, path: "../gemini_ex", optional: true},
+      {:claude_agent_sdk, path: "../claude_agent_sdk", optional: true},
+      {:codex_sdk, path: "../codex_sdk", optional: true},
+      {:openai_ex, "~> 0.9.18", optional: true},
+
+      # Integration targets - OPTIONAL
+      {:flowstone, path: "../flowstone", optional: true},
 
       # Core
       {:telemetry, "~> 1.0"},
@@ -58,11 +67,13 @@ defmodule Altar.AI.MixProject do
 
       # Dev/Test
       {:mox, "~> 1.0", only: :test},
+      {:bypass, "~> 2.1", only: :test},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.18", only: :test}
+      {:excoveralls, "~> 0.18", only: :test},
+      {:supertester, path: "../supertester", only: :test}
     ]
   end
 
@@ -119,6 +130,7 @@ defmodule Altar.AI.MixProject do
           Altar.AI.Adapters.Gemini,
           Altar.AI.Adapters.Claude,
           Altar.AI.Adapters.Codex,
+          Altar.AI.Adapters.OpenAI,
           Altar.AI.Adapters.Composite,
           Altar.AI.Adapters.Fallback,
           Altar.AI.Adapters.Mock

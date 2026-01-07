@@ -24,6 +24,7 @@
 - **Gemini** - Google Gemini AI (via `gemini_ex`)
 - **Claude** - Anthropic Claude (via `claude_agent_sdk`)
 - **Codex** - OpenAI models (via `codex_sdk`)
+- **OpenAI** - OpenAI chat + embeddings (via `openai_ex`)
 - **Fallback** - Heuristic fallback (no external API required)
 - **Mock** - Configurable mock for testing
 
@@ -38,9 +39,10 @@ def deps do
   [
     {:altar_ai, "~> 0.1.0"},
     # Optional: Add the AI SDKs you want to use
-    # {:gemini, "~> 0.1.0"},
+    # {:gemini_ex, "~> 0.1.0"},
     # {:claude_agent_sdk, "~> 0.1.0"},
-    # {:codex_sdk, "~> 0.1.0"}
+    # {:codex_sdk, "~> 0.1.0"},
+    # {:openai_ex, "~> 0.9.18"}
   ]
 end
 ```
@@ -61,6 +63,11 @@ IO.puts(response.content)
 Altar.AI.capabilities(adapter)
 #=> %{generate: true, stream: true, embed: true, batch_embed: true, ...}
 ```
+
+### Examples
+
+See `examples/basic_generation.exs` for a runnable script that exercises
+generation, embeddings, classification, and streaming using the Mock adapter.
 
 ### Composite Adapters with Fallbacks
 

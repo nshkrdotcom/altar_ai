@@ -3,7 +3,7 @@ defmodule Altar.AI.Adapters.MockTest do
 
   alias Altar.AI
   alias Altar.AI.Adapters.Mock
-  alias Altar.AI.{Response, Classification, CodeResult}
+  alias Altar.AI.{Classification, CodeResult, Response}
 
   setup do
     {:ok, adapter: Mock.new()}

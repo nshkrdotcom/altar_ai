@@ -133,6 +133,69 @@ defmodule Altar.AI.Error do
     end
   end
 
+  @doc """
+  Convert an OpenAI (openai_ex) error to a normalized error.
+  """
+  @spec from_openai_error(term()) :: t()
+  if Code.ensure_loaded?(OpenaiEx.Error) do
+    def from_openai_error(%OpenaiEx.Error{kind: :rate_limit}) do
+      new(:rate_limit, "OpenAI rate limit exceeded", provider: :openai, retryable?: true)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{kind: :authentication}) do
+      new(:auth, "OpenAI authentication failed", provider: :openai, retryable?: false)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{kind: :bad_request} = error) do
+      new(:invalid_request, Exception.message(error), provider: :openai, retryable?: false)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{kind: :unprocessable_entity} = error) do
+      new(:invalid_request, Exception.message(error), provider: :openai, retryable?: false)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{kind: :api_timeout_error}) do
+      new(:timeout, "OpenAI request timeout", provider: :openai, retryable?: true)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{kind: :internal_server_error}) do
+      new(:server_error, "OpenAI server error", provider: :openai, retryable?: true)
+    end
+
+    def from_openai_error(%OpenaiEx.Error{} = error) do
+      new(:unknown, Exception.message(error), provider: :openai, details: %{original: error})
+    end
+  end
+
+  def from_openai_error(%{error: %{code: code}} = error) do
+    case code do
+      "rate_limit_exceeded" ->
+        new(:rate_limit, "OpenAI rate limit exceeded", provider: :openai, retryable?: true)
+
+      "invalid_api_key" ->
+        new(:auth, "OpenAI authentication failed", provider: :openai, retryable?: false)
+
+      "invalid_request_error" ->
+        new(:invalid_request, "Invalid request to OpenAI",
+          provider: :openai,
+          retryable?: false
+        )
+
+      _ ->
+        new(:unknown, "Unknown OpenAI error: #{inspect(error)}",
+          provider: :openai,
+          details: %{original: error}
+        )
+    end
+  end
+
+  def from_openai_error(error) do
+    new(:unknown, "Unknown OpenAI error: #{inspect(error)}",
+      provider: :openai,
+      details: %{original: error}
+    )
+  end
+
   # Determine if an error type is retryable by default
   defp retryable_by_default?(type) do
     type in [:rate_limit, :server_error, :timeout, :unavailable]

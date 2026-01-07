@@ -17,7 +17,7 @@ defmodule Altar.AI.Adapters.Fallback do
 end
 
 defimpl Altar.AI.Generator, for: Altar.AI.Adapters.Fallback do
-  alias Altar.AI.{Response, Error}
+  alias Altar.AI.{Error, Response}
 
   def generate(_adapter, prompt, _opts) do
     {:ok,

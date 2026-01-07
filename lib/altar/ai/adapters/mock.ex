@@ -43,7 +43,7 @@ end
 defimpl Altar.AI.Generator, for: Altar.AI.Adapters.Mock do
   alias Altar.AI.Response
 
-  def generate(%{responses: responses}, prompt, _opts) do
+  def generate(%{responses: responses}, prompt, opts) do
     case Map.get(responses, :generate) do
       nil ->
         {:ok, %Response{content: "Mock response for: #{prompt}", provider: :mock, model: "mock"}}
@@ -53,6 +53,9 @@ defimpl Altar.AI.Generator, for: Altar.AI.Adapters.Mock do
 
       {:error, _} = err ->
         err
+
+      fun when is_function(fun, 2) ->
+        fun.(prompt, opts)
 
       fun when is_function(fun, 1) ->
         fun.(prompt)
@@ -120,7 +123,7 @@ end
 defimpl Altar.AI.Classifier, for: Altar.AI.Adapters.Mock do
   alias Altar.AI.Classification
 
-  def classify(%{responses: responses}, text, labels, _opts) do
+  def classify(%{responses: responses}, text, labels, opts) do
     case Map.get(responses, :classify) do
       nil ->
         # Simple mock: pick first label with high confidence
@@ -131,6 +134,9 @@ defimpl Altar.AI.Classifier, for: Altar.AI.Adapters.Mock do
 
       {:error, _} = err ->
         err
+
+      fun when is_function(fun, 3) ->
+        fun.(text, labels, opts)
 
       fun when is_function(fun, 2) ->
         fun.(text, labels)
